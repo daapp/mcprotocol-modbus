@@ -2,7 +2,7 @@
 
 This solution is written to make possible to communicate with FX1,FX2,FX3 PLCs (including China clones) connected by RS-232 cable to computer via network by the following scheme:
 ```
-Host --- Modbus RTU over TCP ---> Computer --- RS-232 Cable ---> PLC
+Host ---(Modbus RTU over TCP)---> Computer ---(RS-232 Cable)---> PLC
 ```
 
 So, it works as simply gateway server. Gateway wait data from Modbus on TCP, then ask PLC via MC Protocol and gives results back.
