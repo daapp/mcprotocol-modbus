@@ -70,7 +70,7 @@ proc mb_parse {data} {
                 binary scan $data a6s body checkSum
                 set cs [mb_checksum $body]
                 if { $cs != $checkSum } {
-                    log "Invalid check sum for package: %s" [binary encode hex $data]
+                    log "Invalid check sum for package: [binary encode hex $data]"
                     return
                 }
 
@@ -89,6 +89,10 @@ proc mb_parse {data} {
     }
 }
 
+# bin - двоичные данные
+proc toAsciiHex {bin} {
+    
+}
 
 # Отправка FX запроса и чтение ответа
 proc fx_exchange {serial payload} {
@@ -142,11 +146,56 @@ proc fx_exchange {serial payload} {
     binary scan [binary format cu [melsec_checksum $body]] H2 sum
     append rtuPayload $sum
 
-    log "Send to serial: [binary encode hex $rtuPayload]"
+    log "Send to serial:       [binary encode hex $rtuPayload]"
     puts -nonewline $serial $rtuPayload
     flush $serial
 
-    return 1
+    set response [fx_read $serial]
+    set bodyLen [expr {[string length $response] -3}]
+    # skip STX(x), take body + ETX (a${bodyLen}), take asciiHex sum(H4)
+    binary scan $response xa${bodyLen}H4 body cs
+    set cs 0x[binary format S 0x$cs]
+    if {$cs != [melsec_checksum $body]} {
+        log "Invalid check sum for package: [binary encode hex $response]" 
+        return
+    } else {
+        set bodyLen [expr {($bodyLen -1)*2}]; # remove ETX byte
+        binary scan $body H${bodyLen} payload
+
+        return $payload
+    }
+}
+
+
+proc fx_read {serial} {
+    set STX 02
+    set ETX 03
+    set res ""
+    set pos 0
+    while 1 {
+        set byte [read $serial 1]
+        binary scan $byte H2 hex
+        if {$pos == 0} {
+            if {$hex eq $STX} {
+                append res $byte
+            } else {
+                log "serial $serial byte <[binary encode hex $byte]>"
+                binary scan $byte H2 hex
+                log "Invalid byte from %s: show be STX, but %s found" $serial $hex
+                return ""
+            }
+        } else {
+            append res $byte
+            binary scan $byte H2 hex
+            if {$hex eq $ETX} {
+                break
+            }
+        }
+        incr pos
+    }
+    append res [read $serial 2]
+    log "Received from serial: [binary encode hex $res]"
+    return $res
 }
 
 
@@ -201,12 +250,13 @@ if {$argc != 1} {
 array set config [read_config [lindex $argv 0]]
 
 set serial [open $config(serial_port) r+]
+log "Open serial port $config(serial_port) with options $config(baud),$config(parity),$config(databits),$config(stopbits)"
 fconfigure $serial \
     -mode "$config(baud),$config(parity),$config(databits),$config(stopbits)" \
     -buffering none \
     -encoding binary \
     -translation binary \
-    -blocking 0
+    -blocking 1
 
 # Запуск TCP сервера
 log "Starting server on port $config(tcp_port) ..."
